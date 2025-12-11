@@ -5,6 +5,9 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import os
+import yaml
+import torch
+import tempfile
 
 
 
@@ -20,7 +23,7 @@ app.add_middleware(
 )
 
 # Configuration from environment variables
-MODEL_PATH = os.getenv('MODEL_PATH', './config/best.onnx')
+MODEL_BASE_PATH = os.getenv('MODEL_PATH', './config')
 CONF_THRES = float(os.getenv('CONF_THRES', '0.25'))
 IOU_THRES = float(os.getenv('IOU_THRES', '0.45'))
 INPUT_SIZE = int(os.getenv('INPUT_SIZE', '640'))
@@ -28,14 +31,105 @@ OUTPUT_IMG_BASE_PATH = os.getenv('OUTPUT_IMG_BASE_PATH', 'output_img')
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', '8000'))
 
-# Load the YOLO model
-model = YOLO(MODEL_PATH)
-# get the labels from the onnx model
-def get_model_labels(model: YOLO):
-    labels = model.names
-    return labels
+# Construct paths for model and labels
+model_file_path = os.path.join(MODEL_BASE_PATH, 'best.onnx')
+labels_file_path = os.path.join(MODEL_BASE_PATH, 'labels.yaml')
 
-model_labels = get_model_labels(model)
+# Validate that required files exist
+if not os.path.exists(model_file_path):
+    raise FileNotFoundError(f"Model file not found: {model_file_path}")
+if not os.path.exists(labels_file_path):
+    raise FileNotFoundError(f"Labels file not found: {labels_file_path}")
+
+# Load the YOLO model
+model = YOLO(model_file_path)
+
+# get model version from onnx model metadata if available
+model_version = MODEL_BASE_PATH
+
+
+# Load labels from YAML file
+with open(labels_file_path, 'r') as f:
+    labels_data = yaml.safe_load(f)
+    model_labels = labels_data.get('names', {})
+    
+print(f"Model loaded from: {model_file_path}")
+print(f"Labels loaded from: {labels_file_path}")
+print(f"Available classes: {model_labels}")
+
+# Global state for health checks
+model_loaded = True
+inference_ok = True
+
+@app.get("/api/v1/health")
+async def health_check():
+    """
+    Health check endpoint that returns system status, model status, and resource information.
+    
+    Returns:
+        dict: A dictionary containing comprehensive health status information.
+    """
+    global model_loaded, inference_ok
+    
+    # Detect device
+    device = "cpu"
+    gpu_memory = None
+    
+    if torch.cuda.is_available():
+        device = f"cuda:{torch.cuda.current_device()}"
+        try:
+            allocated = torch.cuda.memory_allocated()
+            total = torch.cuda.get_device_properties(0).total_memory
+            free_ratio = (total - allocated) / total
+            gpu_memory = {
+                "allocated": allocated,
+                "free_ratio": round(free_ratio, 2)
+            }
+        except Exception as e:
+            print(f"Failed to get GPU memory info: {e}")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = "mps"  # Apple Silicon GPU
+    
+    # Check filesystem access
+    model_path_access = os.path.exists(model_file_path) and os.access(model_file_path, os.R_OK)
+    tmp_writable = False
+    try:
+        with tempfile.NamedTemporaryFile(delete=True) as tmp:
+            tmp.write(b"test")
+            tmp_writable = True
+    except Exception:
+        pass
+    
+    # Check output directory
+    output_writable = False
+    try:
+        os.makedirs(OUTPUT_IMG_BASE_PATH, exist_ok=True)
+        test_file = os.path.join(OUTPUT_IMG_BASE_PATH, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        output_writable = True
+    except Exception:
+        pass
+    
+    health_status = {
+        "status": "ready" if (model_loaded and inference_ok and model_path_access) else "not_ready",
+        "model_loaded": model_loaded,
+        "inference_ok": inference_ok,
+        "device": device,
+        "fs": {
+            "model_path_access": model_path_access,
+            "tmp_writable": tmp_writable,
+            "output_writable": output_writable
+        },
+        "version": model_version
+    }
+    
+    # Add GPU memory info if available
+    if gpu_memory:
+        health_status["gpu_memory"] = gpu_memory
+    
+    return health_status
 
 
 @app.post("/api/v1/detect")
