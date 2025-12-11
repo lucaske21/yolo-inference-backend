@@ -27,11 +27,21 @@ RUN python -m pip install --upgrade pip
 # Copy requirements file
 COPY requirements.txt .
 
-# Install PyTorch with CUDA 12.1 support first
+# Install PyTorch with CUDA 12.1 support first (this will install compatible numpy)
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
-# Install other Python dependencies
+# Ensure opencv-python is not installed (use headless version only for server)
+RUN pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless || true
+
+# Install opencv-python-headless explicitly for server environments
+# This will use numpy already installed by PyTorch (compatible version)
+RUN pip install --no-cache-dir opencv-python-headless==4.8.0.74
+
+# Install other Python dependencies (requirements.txt uses flexible numpy version)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Verify installations and show versions
+RUN python -c "import torch; import cv2; import numpy; print(f'PyTorch: {torch.__version__}'); print(f'OpenCV: {cv2.__version__}'); print(f'NumPy: {numpy.__version__}'); print(f'CUDA Available: {torch.cuda.is_available()}')"
 
 # Copy application code
 COPY src/ ./src/
