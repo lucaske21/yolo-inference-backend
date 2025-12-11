@@ -90,6 +90,11 @@ your-model-directory/
 └── labels.yaml
 ```
 
+**For GPU Support (NVIDIA):**
+- Install [NVIDIA Docker runtime](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+- Ensure you have compatible NVIDIA drivers (supports RTX 4060 Ti and other modern GPUs)
+- CUDA 12.1 or compatible version
+
 #### Pull the Image
 
 ```bash
@@ -104,7 +109,19 @@ docker pull ghcr.io/lucaske21/yolo-inference-backend:main-abc1234
 
 #### Run the Container
 
-**Basic run** (mount your model directory to `/app/config`):
+**With GPU support (NVIDIA RTX 4060 Ti or other CUDA GPUs):**
+
+```bash
+docker run -d \
+  --name yolo-backend \
+  --gpus all \
+  -p 8000:8000 \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/output_img:/app/output_img \
+  ghcr.io/lucaske21/yolo-inference-backend:main-latest
+```
+
+**Basic CPU run** (mount your model directory to `/app/config`):
 
 ```bash
 docker run -d \
@@ -122,6 +139,7 @@ If your model files are in a different directory (e.g., `./my_models`):
 ```bash
 docker run -d \
   --name yolo-backend \
+  --gpus all \
   -p 8000:8000 \
   -e MODEL_PATH=/app/models \
   -v $(pwd)/my_models:/app/models \
@@ -129,17 +147,19 @@ docker run -d \
   ghcr.io/lucaske21/yolo-inference-backend:main-latest
 ```
 
-**With custom environment variables:**
+**With custom environment variables and GPU:**
 
 ```bash
 docker run -d \
   --name yolo-backend \
+  --gpus all \
   -p 9000:9000 \
   -e MODEL_PATH=/app/config \
   -e CONF_THRES=0.3 \
   -e IOU_THRES=0.5 \
   -e HOST=0.0.0.0 \
   -e PORT=9000 \
+  -e MODEL_VERSION=yolo11m-v1.0 \
   -v $(pwd)/config:/app/config \
   -v $(pwd)/output_img:/app/output_img \
   ghcr.io/lucaske21/yolo-inference-backend:main-latest
@@ -149,10 +169,46 @@ docker run -d \
 - The mounted directory must contain both `best.onnx` and `labels.yaml` files
 - `MODEL_PATH` environment variable should point to the container path where you mount your model directory
 - Output images will be saved to the mounted output directory
+- Use `--gpus all` flag to enable GPU acceleration (requires NVIDIA Docker runtime)
+- The image is built with CUDA 12.1 support for NVIDIA GPUs including RTX 4060 Ti
 
 #### Docker Compose Example
 
+**With GPU Support:**
+
 Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+
+services:
+  yolo-backend:
+    image: ghcr.io/lucaske21/yolo-inference-backend:main-latest
+    container_name: yolo-backend
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL_PATH=/app/config
+      - CONF_THRES=0.25
+      - IOU_THRES=0.45
+      - OUTPUT_IMG_BASE_PATH=/app/output_img
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MODEL_VERSION=yolo11m-2025-12-11
+    volumes:
+      - ./config:/app/config
+      - ./output_img:/app/output_img
+    restart: unless-stopped
+```
+
+**CPU Only:**
 
 ```yaml
 version: '3.8'
@@ -188,16 +244,27 @@ docker-compose up -d
 docker build -t yolo-inference-backend .
 ```
 
-Run your locally built image:
+Run your locally built image with GPU:
 
 ```bash
 docker run -d \
   --name yolo-backend \
+  --gpus all \
   -p 8000:8000 \
   -v $(pwd)/config:/app/config \
   -v $(pwd)/output_img:/app/output_img \
   yolo-inference-backend
 ```
+
+#### Verify GPU Support
+
+After starting the container with GPU support, check the health endpoint:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+You should see `"device": "cuda:0"` in the response if GPU is properly detected.
 
 ### GitHub Actions CI/CD
 
