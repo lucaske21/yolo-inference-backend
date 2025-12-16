@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 # Configuration from environment variables
-MODELS_BASE_PATH = os.getenv('MODELS_PATH', '../models')
+MODELS_BASE_PATH = os.getenv('MODELS_PATH', './models')
 CONF_THRES = float(os.getenv('CONF_THRES', '0.25'))
 IOU_THRES = float(os.getenv('IOU_THRES', '0.45'))
 INPUT_SIZE = int(os.getenv('INPUT_SIZE', '640'))
