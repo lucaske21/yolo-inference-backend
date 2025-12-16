@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 
 import cv2
@@ -8,10 +8,14 @@ import os
 import yaml
 import torch
 import tempfile
-
+from utils.tools import load_models
+from utils.tools import InferenceSessions
 
 
 app = FastAPI()
+
+inf_sessions = InferenceSessions()
+
 
 # Configure CORS
 app.add_middleware(
@@ -23,7 +27,7 @@ app.add_middleware(
 )
 
 # Configuration from environment variables
-MODEL_BASE_PATH = os.getenv('MODEL_PATH', './config')
+MODELS_BASE_PATH = os.getenv('MODELS_PATH', '../models')
 CONF_THRES = float(os.getenv('CONF_THRES', '0.25'))
 IOU_THRES = float(os.getenv('IOU_THRES', '0.45'))
 INPUT_SIZE = int(os.getenv('INPUT_SIZE', '640'))
@@ -31,35 +35,19 @@ OUTPUT_IMG_BASE_PATH = os.getenv('OUTPUT_IMG_BASE_PATH', 'output_img')
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', '8000'))
 
-# Construct paths for model and labels
-model_file_path = os.path.join(MODEL_BASE_PATH, 'best.onnx')
-labels_file_path = os.path.join(MODEL_BASE_PATH, 'labels.yaml')
-
-# Validate that required files exist
-if not os.path.exists(model_file_path):
-    raise FileNotFoundError(f"Model file not found: {model_file_path}")
-if not os.path.exists(labels_file_path):
-    raise FileNotFoundError(f"Labels file not found: {labels_file_path}")
-
-# Load the YOLO model
-model = YOLO(model_file_path)
-
-# get model version from onnx model metadata if available
-model_version = MODEL_BASE_PATH
-
-
-# Load labels from YAML file
-with open(labels_file_path, 'r') as f:
-    labels_data = yaml.safe_load(f)
-    model_labels = labels_data.get('names', {})
-    
-print(f"Model loaded from: {model_file_path}")
-print(f"Labels loaded from: {labels_file_path}")
-print(f"Available classes: {model_labels}")
-
-# Global state for health checks
+models = load_models(MODELS_BASE_PATH)
+inf_sessions.initialize_sessions(models, top_n=2)
 model_loaded = True
 inference_ok = True
+
+
+
+# GET /api/v2/models
+@app.get("/api/v2/models")
+async def get_models():
+    global models
+
+    return models.to_dict()
 
 @app.get("/api/v1/health")
 async def health_check():
@@ -91,7 +79,8 @@ async def health_check():
         device = "mps"  # Apple Silicon GPU
     
     # Check filesystem access
-    model_path_access = os.path.exists(model_file_path) and os.access(model_file_path, os.R_OK)
+    # model_path_access = False
+    # model_path_access = os.path.exists(model_file_path) and os.access(model_file_path, os.R_OK)
     tmp_writable = False
     try:
         with tempfile.NamedTemporaryFile(delete=True) as tmp:
@@ -113,16 +102,14 @@ async def health_check():
         pass
     
     health_status = {
-        "status": "ready" if (model_loaded and inference_ok and model_path_access) else "not_ready",
-        "model_loaded": model_loaded,
+        # "status": "ready" if (model_loaded and inference_ok and model_path_access) else "not_ready",
         "inference_ok": inference_ok,
         "device": device,
         "fs": {
-            "model_path_access": model_path_access,
+            # "model_path_access": model_path_access,
             "tmp_writable": tmp_writable,
             "output_writable": output_writable
         },
-        "version": model_version
     }
     
     # Add GPU memory info if available
@@ -132,8 +119,8 @@ async def health_check():
     return health_status
 
 
-@app.post("/api/v1/detect")
-async def predict(file: UploadFile = File(...)):
+@app.post("/api/v2/detect")
+async def predict(file: UploadFile = File(...), model_id: int = Form(0)):
     """
     Predict objects in an image using YOLOv11 model.
     
@@ -142,11 +129,28 @@ async def predict(file: UploadFile = File(...)):
         
     Returns:
         dict: A dictionary containing the prediction results.
+
+
+    example usage in curl:
+        curl --location 'http://localhost:8000/api/v2/detect' \
+        --form 'file=@"ds-yolo/nc3-v3-inc_bg-multi-person-yolo/val/images/bdf62324-4709-42ac-8be8-f65f09789bf7.jpg"' \
+        --form 'model_id="1"'
     """
     # Read the image
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    print(f"Received image with shape: {img.shape}, model_id: {model_id}")
+
+    global inf_sessions
+
+    model = inf_sessions.get_session(model_id)
+    model_labels = inf_sessions.get_label_names(model_id)
+    if model is None:
+        return {"error": f"Model ID {model_id} not found."}
+    if model_labels is None:
+        return {"error": f"Labels for Model ID {model_id} not found."}
+
 
     # Perform prediction
     results = model.predict(source=img, conf=CONF_THRES, iou=IOU_THRES, show_labels=True, show_conf=True)
@@ -167,12 +171,12 @@ async def predict(file: UploadFile = File(...)):
     # draw the boxes with labels on the image
     # and save it to the output folder using ultralytics' built-in function
     result_img = results[0].plot()
-    img = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
+    # img = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
 
     # Create output directory if it doesn't exist
     os.makedirs(OUTPUT_IMG_BASE_PATH, exist_ok=True)
     output_path = os.path.join(OUTPUT_IMG_BASE_PATH, file.filename)
-    cv2.imwrite(output_path, img)
+    cv2.imwrite(output_path, result_img)
 
     return {"predictions": predictions}
 
