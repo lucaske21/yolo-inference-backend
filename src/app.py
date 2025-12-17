@@ -1,185 +1,203 @@
+"""
+YOLO Inference Backend API.
+
+This module provides a FastAPI application for object detection using YOLO models.
+It implements OOP principles with service-oriented architecture, proper logging,
+and configuration management.
+"""
+
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any
 
-import cv2
-import numpy as np
-from ultralytics import YOLO
-import os
-import yaml
-import torch
-import tempfile
-from utils.tools import load_models
-from utils.tools import InferenceSessions
+from config import config
+from logger import setup_logging, get_logger
+from utils.tools import load_models, InferenceSessions
+from services import HealthService, DetectionService
 
 
-app = FastAPI()
+# Initialize logging
+setup_logging(log_level=config.log_level)
+logger = get_logger(__name__)
 
-inf_sessions = InferenceSessions()
-
+# Initialize FastAPI application
+app = FastAPI(
+    title="YOLO Inference Backend",
+    description="Object detection API using YOLO models",
+    version="2.0.0"
+)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins. Change to specific domains in production
+    allow_origins=["*"],  # Change to specific domains in production
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Configuration from environment variables
-MODELS_BASE_PATH = os.getenv('MODELS_PATH', './models')
-CONF_THRES = float(os.getenv('CONF_THRES', '0.25'))
-IOU_THRES = float(os.getenv('IOU_THRES', '0.45'))
-INPUT_SIZE = int(os.getenv('INPUT_SIZE', '640'))
-OUTPUT_IMG_BASE_PATH = os.getenv('OUTPUT_IMG_BASE_PATH', 'output_img')
-HOST = os.getenv('HOST', '0.0.0.0')
-PORT = int(os.getenv('PORT', '8000'))
 
-models = load_models(MODELS_BASE_PATH)
-inf_sessions.initialize_sessions(models, top_n=2)
-model_loaded = True
-inference_ok = True
-
-
-
-# GET /api/v2/models
-@app.get("/api/v2/models")
-async def get_models():
-    global models
-
-    return models.to_dict()
-
-@app.get("/api/v1/health")
-async def health_check():
+class ApplicationState:
     """
-    Health check endpoint that returns system status, model status, and resource information.
+    Application state management class.
+    
+    Encapsulates all global application state including models,
+    inference sessions, and services.
+    
+    Attributes:
+        models: Models instance with loaded model information
+        inference_sessions: InferenceSessions manager instance
+        health_service: HealthService instance for health checks
+        detection_service: DetectionService instance for object detection
+    """
+    
+    def __init__(self):
+        """Initialize application state."""
+        logger.info("Initializing application state")
+        
+        # Validate configuration
+        try:
+            config.validate()
+            logger.info(f"Configuration validated: {config}")
+        except ValueError as e:
+            logger.error(f"Invalid configuration: {e}")
+            raise
+        
+        # Load models
+        try:
+            self.models = load_models(config.models_path)
+            logger.info(f"Loaded {len(self.models.models)} models")
+        except Exception as e:
+            logger.error(f"Failed to load models: {e}")
+            raise
+        
+        # Initialize inference sessions
+        self.inference_sessions = InferenceSessions()
+        try:
+            self.inference_sessions.initialize_sessions(self.models, top_n=2)
+            logger.info("Inference sessions initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize inference sessions: {e}")
+            raise
+        
+        # Initialize services
+        self.health_service = HealthService(
+            output_img_base_path=config.output_img_base_path
+        )
+        
+        self.detection_service = DetectionService(
+            inference_sessions=self.inference_sessions,
+            conf_thres=config.conf_thres,
+            iou_thres=config.iou_thres,
+            output_img_base_path=config.output_img_base_path
+        )
+        
+        logger.info("Application state initialized successfully")
+
+
+# Initialize application state
+try:
+    app_state = ApplicationState()
+except Exception as e:
+    logger.critical(f"Failed to initialize application: {e}")
+    raise
+
+
+@app.get("/api/v2/models")
+async def get_models() -> Dict[str, Any]:
+    """
+    Get list of available models.
     
     Returns:
-        dict: A dictionary containing comprehensive health status information.
+        Dictionary containing model information
     """
-    global model_loaded, inference_ok
-    
-    # Detect device
-    device = "cpu"
-    gpu_memory = None
-    
-    if torch.cuda.is_available():
-        device = f"cuda:{torch.cuda.current_device()}"
-        try:
-            allocated = torch.cuda.memory_allocated()
-            total = torch.cuda.get_device_properties(0).total_memory
-            free_ratio = (total - allocated) / total
-            gpu_memory = {
-                "allocated": allocated,
-                "free_ratio": round(free_ratio, 2)
-            }
-        except Exception as e:
-            print(f"Failed to get GPU memory info: {e}")
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-        device = "mps"  # Apple Silicon GPU
-    
-    # Check filesystem access
-    # model_path_access = False
-    # model_path_access = os.path.exists(model_file_path) and os.access(model_file_path, os.R_OK)
-    tmp_writable = False
+    logger.info("GET /api/v2/models")
     try:
-        with tempfile.NamedTemporaryFile(delete=True) as tmp:
-            tmp.write(b"test")
-            tmp_writable = True
-    except Exception:
-        pass
+        models_dict = app_state.models.to_dict()
+        logger.debug(f"Returning {len(models_dict)} models")
+        return models_dict
+    except Exception as e:
+        logger.error(f"Error getting models: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/v1/health")
+async def health_check() -> Dict[str, Any]:
+    """
+    Health check endpoint that returns system status.
     
-    # Check output directory
-    output_writable = False
+    Returns comprehensive health status information including:
+    - inference_ok: Whether inference is working
+    - device: Computing device being used (cpu/cuda/mps)
+    - gpu_memory: GPU memory information (if available)
+    - fs: Filesystem access status
+    
+    Returns:
+        Dictionary containing health status information
+    """
+    logger.info("GET /api/v1/health")
     try:
-        os.makedirs(OUTPUT_IMG_BASE_PATH, exist_ok=True)
-        test_file = os.path.join(OUTPUT_IMG_BASE_PATH, '.write_test')
-        with open(test_file, 'w') as f:
-            f.write('test')
-        os.remove(test_file)
-        output_writable = True
-    except Exception:
-        pass
-    
-    health_status = {
-        # "status": "ready" if (model_loaded and inference_ok and model_path_access) else "not_ready",
-        "inference_ok": inference_ok,
-        "device": device,
-        "fs": {
-            # "model_path_access": model_path_access,
-            "tmp_writable": tmp_writable,
-            "output_writable": output_writable
-        },
-    }
-    
-    # Add GPU memory info if available
-    if gpu_memory:
-        health_status["gpu_memory"] = gpu_memory
-    
-    return health_status
+        health_status = app_state.health_service.get_health_status()
+        logger.debug(f"Health status: {health_status}")
+        return health_status
+    except Exception as e:
+        logger.error(f"Error during health check: {e}")
+        return {
+            "inference_ok": False,
+            "device": "unknown",
+            "error": str(e)
+        }
 
 
 @app.post("/api/v2/detect")
-async def predict(file: UploadFile = File(...), model_id: int = Form(0)):
+async def predict(
+    file: UploadFile = File(...),
+    model_id: int = Form(0)
+) -> Dict[str, Any]:
     """
-    Predict objects in an image using YOLOv11 model.
+    Detect objects in an uploaded image using YOLO model.
     
     Args:
-        file (UploadFile): The uploaded image file.
+        file: The uploaded image file
+        model_id: ID of the model to use (default: 0)
         
     Returns:
-        dict: A dictionary containing the prediction results.
-
-
-    example usage in curl:
-        curl --location 'http://localhost:8000/api/v2/detect' \
-        --form 'file=@"ds-yolo/nc3-v3-inc_bg-multi-person-yolo/val/images/bdf62324-4709-42ac-8be8-f65f09789bf7.jpg"' \
-        --form 'model_id="1"'
+        Dictionary containing predictions with bounding boxes and class information
+        
+    Example usage with curl:
+        curl --location 'http://localhost:8000/api/v2/detect' \\
+        --form 'file=@"path/to/image.jpg"' \\
+        --form 'model_id="0"'
     """
-    # Read the image
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    print(f"Received image with shape: {img.shape}, model_id: {model_id}")
+    logger.info(f"POST /api/v2/detect - model_id={model_id}, filename={file.filename}")
+    
+    try:
+        # Read image bytes
+        contents = await file.read()
+        logger.debug(f"Received image file: {file.filename}, size: {len(contents)} bytes")
+        
+        # Perform detection using service
+        result = app_state.detection_service.detect_objects(
+            image_bytes=contents,
+            model_id=model_id,
+            filename=file.filename
+        )
+        
+        if "error" in result:
+            logger.warning(f"Detection failed: {result['error']}")
+        else:
+            logger.info(
+                f"Detection completed: {len(result.get('predictions', []))} objects detected"
+            )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Unexpected error during detection: {e}", exc_info=True)
+        return {"error": f"Internal server error: {str(e)}"}
 
-    global inf_sessions
-
-    model = inf_sessions.get_session(model_id)
-    model_labels = inf_sessions.get_label_names(model_id)
-    if model is None:
-        return {"error": f"Model ID {model_id} not found."}
-    if model_labels is None:
-        return {"error": f"Labels for Model ID {model_id} not found."}
-
-
-    # Perform prediction
-    results = model.predict(source=img, conf=CONF_THRES, iou=IOU_THRES, show_labels=True, show_conf=True)
-
-    # Process results
-    predictions = []
-    for result in results:
-        for box in result.boxes.data.tolist():
-            predictions.append({
-                "class_id": int(box[5]),
-                "class_name": model_labels[int(box[5])],
-                "confidence": float(box[4]),
-                "x1": int(box[0]),
-                "y1": int(box[1]),
-                "x2": int(box[2]),
-                "y2": int(box[3])
-            })
-    # draw the boxes with labels on the image
-    # and save it to the output folder using ultralytics' built-in function
-    result_img = results[0].plot()
-    # img = cv2.cvtColor(result_img, cv2.COLOR_RGB2BGR)
-
-    # Create output directory if it doesn't exist
-    os.makedirs(OUTPUT_IMG_BASE_PATH, exist_ok=True)
-    output_path = os.path.join(OUTPUT_IMG_BASE_PATH, file.filename)
-    cv2.imwrite(output_path, result_img)
-
-    return {"predictions": predictions}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=HOST, port=PORT)
+    logger.info(f"Starting server on {config.host}:{config.port}")
+    uvicorn.run(app, host=config.host, port=config.port)
