@@ -121,7 +121,6 @@ class TestDetectionResult(unittest.TestCase):
         """Test DetectionResult can be created and converted to dict."""
         # We need to mock torch for this, so we'll skip if torch not available
         try:
-            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
             # Try importing but catch if dependencies not available
             from services.detection_service import DetectionResult
             

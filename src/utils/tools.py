@@ -8,11 +8,7 @@ inference sessions with proper encapsulation and logging.
 from utils.dataModel import ModelInfo, Models
 from ultralytics import YOLO
 from typing import Dict, Optional
-import sys
-import os
 
-# Add parent directory to path for logger import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from logger import get_logger
 
 

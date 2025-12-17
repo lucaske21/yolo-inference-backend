@@ -8,10 +8,7 @@ metadata, and collections of models with validation and loading capabilities.
 from dataclasses import dataclass
 from typing import Dict
 import os
-import sys
 
-# Add parent directory to path for logger import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from logger import get_logger
 
 

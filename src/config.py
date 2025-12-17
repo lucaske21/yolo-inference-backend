@@ -5,6 +5,8 @@ This module provides a centralized configuration management system using
 the Singleton pattern to ensure consistent configuration across the application.
 """
 
+from __future__ import annotations
+
 import os
 from typing import Optional
 
@@ -27,7 +29,7 @@ class Config:
         log_level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
     
-    _instance: Optional['Config'] = None
+    _instance: Optional[Config] = None
     
     def __new__(cls):
         """Implement Singleton pattern."""

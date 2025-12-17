@@ -111,12 +111,17 @@ class DetectionService:
             nparr = np.frombuffer(image_bytes, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             if img is None:
-                logger.error("Failed to decode image")
+                logger.error(
+                    f"Failed to decode image: size={len(image_bytes)} bytes, "
+                    f"may be invalid format or corrupted"
+                )
                 return None
             logger.debug(f"Image decoded successfully with shape: {img.shape}")
             return img
         except Exception as e:
-            logger.error(f"Error decoding image: {e}")
+            logger.error(
+                f"Error decoding image: {e}, size={len(image_bytes)} bytes"
+            )
             return None
     
     def run_inference(

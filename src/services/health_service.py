@@ -7,7 +7,7 @@ all health check logic for the YOLO inference backend.
 
 import os
 import tempfile
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 import torch
 
 from logger import get_logger
@@ -39,7 +39,7 @@ class HealthService:
         self.inference_ok = True
         logger.info("HealthService initialized")
     
-    def get_device_info(self) -> tuple[str, Optional[Dict[str, Any]]]:
+    def get_device_info(self) -> Tuple[str, Optional[Dict[str, Any]]]:
         """
         Get information about the computing device.
         
