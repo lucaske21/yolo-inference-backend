@@ -1,6 +1,18 @@
+"""
+Data models for YOLO Inference Backend.
+
+This module provides data classes for representing model information,
+metadata, and collections of models with validation and loading capabilities.
+"""
+
 from dataclasses import dataclass
 from typing import Dict
 import os
+
+from logger import get_logger
+
+
+logger = get_logger(__name__)
 
 # Below is the sample of model info in the labels.yaml file
 # model_name: "fire-smoke-p-tfc-exca-roller"
@@ -32,6 +44,15 @@ import os
 
 @dataclass
 class Metadata:
+    """
+    Metadata information for YOLO models.
+    
+    Attributes:
+        training_data (str): Training dataset information
+        date_trained (str): Date when model was trained
+        maintainers (str): Model maintainers
+        note (str): Additional notes about the model
+    """
     training_data: str
     date_trained: str
     maintainers: str
@@ -40,37 +61,36 @@ class Metadata:
 
 @dataclass
 class ModelInfo:
-    '''
+    """
     Data model for storing model information loaded from YAML file.
+    
     Attributes:
-    ----------
-    model_name (str): Name of the model.
-    model_family (str): Family of the model (e.g., YOLOv8, YOLO11).
-    version (str): Version of the model.
-    model_path (str): Path to the model file.
-    task (str): Task type (e.g., classification, detection, segmentation).
-    input_size (str): Input size for the model.
-    description (str): Description of the model.
-    metadata (Metadata): Metadata information about the model.
-    names (dict): Dictionary mapping class indices to class names.
+        model_name (str): Name of the model
+        model_family (str): Family of the model (e.g., YOLOv8, YOLO11)
+        version (str): Version of the model
+        model_path (str): Path to the model file
+        task (str): Task type (e.g., classification, detection, segmentation)
+        input_size (str): Input size for the model
+        description (str): Description of the model
+        metadata (Metadata): Metadata information about the model
+        names (dict): Dictionary mapping class indices to class names
+        
     Methods:
-    -------
-    from_dict(data: dict) -> ModelInfo:
-        Creates a ModelInfo instance from a dictionary.
-    is_complete() -> bool:
-        Checks if all required fields are present.
-    validate_task() -> None:
-        Validates the task type.
-    validate_model_path() -> None:
-        Validates that the model path exists.
-    load_model_info_from_yaml(yaml_path: str) -> ModelInfo:
-        Loads model information from a YAML file.
-
+        from_dict(data: dict) -> ModelInfo:
+            Creates a ModelInfo instance from a dictionary
+        is_complete() -> bool:
+            Checks if all required fields are present
+        validate_task() -> None:
+            Validates the task type
+        validate_model_path() -> None:
+            Validates that the model path exists
+        load_model_info_from_yaml(yaml_path: str) -> ModelInfo:
+            Loads model information from a YAML file
+            
     Example usage:
-    -------------
         model_info = ModelInfo.load_model_info_from_yaml('path/to/labels.yaml')
-        print(model_info)
-    '''
+        logger.info(f"Loaded model: {model_info}")
+    """
     model_name: str
     model_family: str
     version: str
@@ -82,6 +102,15 @@ class ModelInfo:
     names: dict
 
     def from_dict(data: dict):
+        """
+        Create ModelInfo instance from dictionary.
+        
+        Args:
+            data: Dictionary containing model information
+            
+        Returns:
+            ModelInfo instance
+        """
         return ModelInfo(
             model_name=data.get("model_name", ""),
             model_family=data.get("model_family", ""),
@@ -100,8 +129,13 @@ class ModelInfo:
         )
     
 
-    # check the info completeness
     def is_complete(self):
+        """
+        Check if all required fields are present.
+        
+        Returns:
+            bool: True if all required fields are present
+        """
         required_fields = [
             self.model_name,
             self.model_family,
@@ -116,67 +150,120 @@ class ModelInfo:
         return all(required_fields)
     
     def __str__(self):
-        return f"ModelInfo(name={self.model_name}, family={self.model_family}, version={self.version}, model_path={self.model_path}, task={self.task}, input_size={self.input_size}, description={self.description}, num_classes={len(self.names)}), metadata={self.metadata})"
+        """String representation of ModelInfo."""
+        return (
+            f"ModelInfo(name={self.model_name}, family={self.model_family}, "
+            f"version={self.version}, model_path={self.model_path}, "
+            f"task={self.task}, input_size={self.input_size}, "
+            f"description={self.description}, num_classes={len(self.names)}, "
+            f"metadata={self.metadata})"
+        )
     
-    # The input validation checking 
     def validate_task(self):
+        """
+        Validate the task type.
+        
+        Raises:
+            ValueError: If task is not valid
+        """
         valid_tasks = ["classification", "detection", "segmentation"]
         if self.task not in valid_tasks:
-            raise ValueError(f"Invalid task: {self.task}. Must be one of {valid_tasks}")
+            error_msg = f"Invalid task: {self.task}. Must be one of {valid_tasks}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
     def validate_model_path(self):
-        import os
-        if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"Model path does not exist: {self.model_path}")
+        """
+        Validate that the model path exists.
         
+        Raises:
+            FileNotFoundError: If model path does not exist
+        """
+        if not os.path.exists(self.model_path):
+            error_msg = f"Model path does not exist: {self.model_path}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
 
-
-    # load the model info from a yaml file
     def load_model_info_from_yaml(yaml_path: str):
+        """
+        Load model information from a YAML file.
+        
+        Args:
+            yaml_path: Path to the YAML file
+            
+        Returns:
+            ModelInfo instance with loaded information
+            
+        Raises:
+            ValueError: If model info is incomplete
+            FileNotFoundError: If model path does not exist
+        """
         import yaml
+        logger.info(f"Loading model info from {yaml_path}")
+        
         with open(yaml_path, 'r') as f:
             data = yaml.safe_load(f)
             model_info = ModelInfo.from_dict(data)
-            # the model file is in the same folder as the yaml file
-            model_info.model_path = os.path.join(os.path.dirname(yaml_path), model_info.model_path)
+            # The model file is in the same folder as the yaml file
+            model_info.model_path = os.path.join(
+                os.path.dirname(yaml_path),
+                model_info.model_path
+            )
 
             if not model_info.is_complete():
-                raise ValueError(f"Incomplete model info in {yaml_path}")
+                error_msg = f"Incomplete model info in {yaml_path}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             
-            # validate task
+            # Validate task
             model_info.validate_task()
-            # validate model path
+            # Validate model path
             model_info.validate_model_path()
-
+            
+            logger.info(f"Successfully loaded model: {model_info.model_name}")
             return model_info
         
 
 @dataclass
 class Models:
-    '''
+    """
     Data model for storing multiple model information.
+    
+    This class manages a collection of ModelInfo instances and provides
+    methods for loading models from a directory structure.
+    
     Attributes:
-    ----------
-    models (Dict[str, ModelInfo]): Dictionary mapping model IDs to ModelInfo instances.
+        models (Dict[str, ModelInfo]): Dictionary mapping model IDs to ModelInfo instances
+        
     Methods:
-    -------
-    add_model(model_info: ModelInfo) -> None:
-        Adds a ModelInfo instance to the models Dictionary.
-
+        add_model(model_info: ModelInfo) -> None:
+            Adds a ModelInfo instance to the models Dictionary
+        load_models_info(models_base_path: str) -> None:
+            Loads all models from the base path directory
+        to_dict() -> dict:
+            Returns JSON-serializable representation of models
+            
     Example usage:
-    -------------
-    models = Models()
-    '''
+        models = Models(models={})
+        models.load_models_info('./models')
+        logger.info(f"Loaded {len(models.models)} models")
+    """
     models: Dict[str, ModelInfo]
 
-    # Add models info from the models base path 
-    # The path contains multiple model folders, each folder has a labels.yaml file
-    # The function will scan the base path, load each labels.yaml file, and add to the models list
     def load_models_info(self, models_base_path: str):
-        import os
-        # scan the subfolder under the models base path directory to get the model folders
-        # and put into the models list
+        """
+        Load models information from the models base path.
+        
+        The path should contain multiple model folders, each with a labels.yaml file.
+        This method scans the base path, loads each labels.yaml file, and adds
+        models to the collection.
+        
+        Args:
+            models_base_path: Base directory containing model subdirectories
+        """
+        logger.info(f"Scanning for models in {models_base_path}")
         i = 0
+        
         for model_folder in os.listdir(models_base_path):
             model_path = os.path.join(models_base_path, model_folder)
             if os.path.isdir(model_path):
@@ -185,22 +272,27 @@ class Models:
                 if os.path.exists(labels_file):
                     try:
                         model_info = ModelInfo.load_model_info_from_yaml(labels_file)
-
                         self.models[str(i)] = model_info
+                        logger.info(
+                            f"Loaded model {i}: {model_info.model_name} "
+                            f"(version {model_info.version})"
+                        )
                         i += 1
                     except Exception as e:
-                        print(f"Failed to load model info from {labels_file}: {e}")
+                        logger.error(f"Failed to load model info from {labels_file}: {e}")
+        
+        logger.info(f"Successfully loaded {len(self.models)} models")
 
-
-    # json representation of the models, to respond to API request
-    # just contain the model_name, version, task and description
     def to_dict(self):
-        '''
-        This method converts the Models instance into a dictionary representation.
-        It includes only essential information about each model for easy serialization.
+        """
+        Convert Models instance to dictionary representation.
+        
+        Returns dictionary containing only essential information about each model
+        for easy serialization and API responses.
+        
         Returns:
-        dict: A dictionary containing model information.
-        '''
+            dict: Dictionary with model information (name, version, task, description)
+        """
         models_dict = {}
         
         for idx, model_info in self.models.items():
@@ -210,14 +302,14 @@ class Models:
                 "task": model_info.task,
                 "description": model_info.description
             }
+        
+        logger.debug(f"Converted {len(models_dict)} models to dictionary")
         return models_dict
 
-
 if __name__ == "__main__":
-
-    # test loading multiple models info from base path
+    # Test loading multiple models info from base path
     models = Models(models={})
     models.load_models_info('../models')
-    print(f"Loaded {len(models.models)} models:")
+    logger.info(f"Loaded {len(models.models)} models:")
     for idx, model_info in models.models.items():
-        print(f"Model {idx}: {model_info}")
+        logger.info(f"Model {idx}: {model_info}")
