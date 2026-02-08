@@ -42,15 +42,17 @@ The main changes are in `src/utils/tools.py`:
 
 ### Memory Savings
 
-With the test setup (2 YOLOv8n models):
-- **Before**: 29.52 MB at startup
-- **After**: 0.00 MB at startup
-- **Savings**: 100% reduction in startup memory
+**Test Environment** (2 YOLOv8n nano models - example measurements):
+- **Before**: ~30 MB at startup (models loaded eagerly)
+- **After**: ~0 MB at startup (models not loaded)
+- **Savings**: ~30 MB or 100% reduction in startup memory
 
-With production models (2 YOLOv8m or YOLO11 models):
-- **Before**: ~3GB at startup (1-2GB per model)
-- **After**: ~0 MB at startup
-- **Savings**: ~3GB (or ~97% reduction)
+**Production Scenario** (2 YOLOv8m or YOLO11 medium/large models - estimated):
+- **Before**: ~3GB at startup (1-2GB per model, loaded eagerly)
+- **After**: ~0 MB at startup (models loaded only when first used)
+- **Savings**: ~3GB (or ~97% reduction in startup memory)
+
+*Note: Actual memory savings vary based on model size, system configuration, and runtime environment.*
 
 ## Performance Impact
 

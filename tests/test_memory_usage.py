@@ -155,8 +155,11 @@ def main():
     
     print(f"\nMEMORY SAVINGS AT STARTUP:")
     savings = eager_results['startup_overhead'] - lazy_results['startup_overhead']
-    savings_percent = (savings / eager_results['startup_overhead']) * 100
-    print(f"  {savings:.2f} MB ({savings_percent:.1f}% reduction)")
+    if eager_results['startup_overhead'] > 0:
+        savings_percent = (savings / eager_results['startup_overhead']) * 100
+        print(f"  {savings:.2f} MB ({savings_percent:.1f}% reduction)")
+    else:
+        print(f"  {savings:.2f} MB (N/A% - baseline too small)")
     print("="*70)
     
     print("\nℹ️  NOTE: With larger YOLO models (yolov8m, yolov8l, yolo11), ")
