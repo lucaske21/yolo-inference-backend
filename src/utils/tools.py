@@ -47,21 +47,25 @@ class InferenceSessions:
     
     This class provides encapsulated management of model inference sessions,
     including model loading, session storage, and label retrieval.
+    Implements lazy loading to reduce startup memory consumption.
     
     Attributes:
         sessions (Dict[int, YOLO]): Dictionary mapping model IDs to YOLO instances
         label_names (Dict[int, Dict]): Dictionary mapping model IDs to label names
+        models: Reference to Models instance for lazy loading
     """
 
     def __init__(self):
         """Initialize empty inference sessions."""
         self.sessions: Dict[int, YOLO] = {}
         self.label_names: Dict[int, Dict] = {}
+        self.models: Optional[Models] = None
         logger.info("InferenceSessions initialized")
 
     def get_session(self, model_id: int) -> Optional[YOLO]:
         """
         Retrieve the inference session for the specified model ID.
+        Implements lazy loading - loads model on first access.
         
         Args:
             model_id: ID of the model
@@ -69,14 +73,27 @@ class InferenceSessions:
         Returns:
             YOLO model instance or None if not found
         """
-        session = self.sessions.get(model_id)
-        if session is None:
-            logger.warning(f"Session not found for model ID {model_id}")
-        return session
+        # Check if session already exists
+        if model_id in self.sessions:
+            return self.sessions[model_id]
+        
+        # Lazy load the model if not already loaded
+        if self.models is not None:
+            try:
+                logger.info(f"Lazy loading model {model_id} on first access")
+                self.add_session_label(model_id, self.models)
+                return self.sessions.get(model_id)
+            except Exception as e:
+                logger.error(f"Failed to lazy load model {model_id}: {e}")
+                return None
+        
+        logger.warning(f"Session not found for model ID {model_id} and models not available")
+        return None
     
     def get_label_names(self, model_id: int) -> Optional[Dict]:
         """
         Retrieve label names for the specified model ID.
+        Implements lazy loading - loads model metadata on first access.
         
         Args:
             model_id: ID of the model
@@ -84,10 +101,22 @@ class InferenceSessions:
         Returns:
             Dictionary of label names or None if not found
         """
-        labels = self.label_names.get(model_id)
-        if labels is None:
-            logger.warning(f"Labels not found for model ID {model_id}")
-        return labels
+        # Check if labels already exist
+        if model_id in self.label_names:
+            return self.label_names[model_id]
+        
+        # Lazy load the model if not already loaded
+        if self.models is not None:
+            try:
+                logger.info(f"Lazy loading model labels {model_id} on first access")
+                self.add_session_label(model_id, self.models)
+                return self.label_names.get(model_id)
+            except Exception as e:
+                logger.error(f"Failed to lazy load model labels {model_id}: {e}")
+                return None
+        
+        logger.warning(f"Labels not found for model ID {model_id} and models not available")
+        return None
 
     def add_session_label(self, model_id: int, models: Models) -> None:
         """
@@ -124,17 +153,14 @@ class InferenceSessions:
 
     def initialize_sessions(self, models: Models, top_n: int = 2) -> None:
         """
-        Initialize inference sessions for the top N models.
+        Initialize inference sessions manager with models reference.
+        Does NOT preload models - uses lazy loading instead.
         
         Args:
             models: Models instance containing model information
-            top_n: Number of models to initialize (default: 2)
+            top_n: Number of models to support (default: 2) - kept for backward compatibility
         """
-        logger.info(f"Initializing {top_n} inference sessions")
-        for i in range(top_n):
-            try:
-                self.add_session_label(i, models)
-            except Exception as e:
-                logger.error(f"Failed to initialize session for model {i}: {e}")
-        logger.info(f"Initialized {len(self.sessions)} inference sessions")
+        logger.info(f"Setting up lazy loading for up to {top_n} inference sessions")
+        self.models = models
+        logger.info(f"Lazy loading configured - models will be loaded on first use")
     
