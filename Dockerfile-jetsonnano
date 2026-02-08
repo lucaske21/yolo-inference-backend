@@ -5,10 +5,10 @@ FROM ultralytics/ultralytics:8.4.11-jetson-jetpack4
 WORKDIR /app
 
 # Install fastapi and uvicorn for serving the application
-RUN pip3 install fastapi uvicorn
+RUN python3 -m pip install fastapi uvicorn
 
 # Install python-multipart
-RUN pip3 install python-multipart
+RUN python3 -m pip install python-multipart
 
 # Verify installations and show versions
 RUN python3 -c "import torch; import cv2; import numpy; print(f'PyTorch: {torch.__version__}'); print(f'OpenCV: {cv2.__version__}'); print(f'NumPy: {numpy.__version__}'); print(f'CUDA Available: {torch.cuda.is_available()}')"
