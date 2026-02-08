@@ -3,12 +3,34 @@ This repo is the backend of the yolo models
 
 ## ⚡ Memory Optimization
 
-The backend implements **lazy loading** for YOLO models, significantly reducing startup memory consumption:
-- Models are loaded **on-demand** when first requested via API
-- Loaded models are cached in memory for fast subsequent requests
-- **Startup memory reduced by ~3GB** (from ~3GB to near 0 for 2 medium models)
+The backend offers **two memory management strategies**:
 
-See [MEMORY_OPTIMIZATION.md](MEMORY_OPTIMIZATION.md) for detailed information.
+### 1. Lazy Loading (Default - Main Branch)
+- Models load **on-demand** when first requested via API
+- Loaded models cached in memory for fast subsequent requests
+- **Startup memory reduced by ~3GB** (from ~3GB to near 0)
+- Best for: 2-10 models with sufficient memory
+
+### 2. LRU Cache (Branch: `copilot/lru-cache-implementation`)
+- Lazy loading + intelligent memory management
+- Automatically evicts least recently used models
+- **Configurable memory ceiling** (e.g., 4GB limit)
+- Best for: Many models (>10) with limited memory
+
+**Documentation:**
+- Lazy Loading: [MEMORY_OPTIMIZATION.md](MEMORY_OPTIMIZATION.md)
+- LRU Cache: [LRU_CACHE_GUIDE.md](LRU_CACHE_GUIDE.md) (on LRU branch)
+
+**To use LRU cache:**
+```bash
+# Clone and checkout LRU branch
+git checkout copilot/lru-cache-implementation
+
+# Enable LRU mode
+export ENABLE_LRU_CACHE=true
+export MAX_MEMORY_MB=4096
+python src/app.py
+```
 
 ## Model Structure
 
