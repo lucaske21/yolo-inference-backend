@@ -13,6 +13,7 @@ from typing import Dict, Any
 from config import config
 from logger import setup_logging, get_logger
 from utils.tools import load_models, InferenceSessions
+from utils.tools_lru import InferenceSessionsWithLRU
 from services import HealthService, DetectionService
 
 
@@ -71,8 +72,17 @@ class ApplicationState:
             logger.error(f"Failed to load models: {e}")
             raise
         
-        # Initialize inference sessions
-        self.inference_sessions = InferenceSessions()
+        # Initialize inference sessions (with or without LRU cache)
+        if config.enable_lru_cache:
+            logger.info("Using LRU cache mode for inference sessions")
+            self.inference_sessions = InferenceSessionsWithLRU(
+                max_memory_mb=config.max_memory_mb,
+                memory_check_interval=config.memory_check_interval
+            )
+        else:
+            logger.info("Using lazy loading mode for inference sessions")
+            self.inference_sessions = InferenceSessions()
+        
         try:
             self.inference_sessions.initialize_sessions(self.models, top_n=2)
             logger.info("Inference sessions initialized")
@@ -195,6 +205,38 @@ async def predict(
     except Exception as e:
         logger.error(f"Unexpected error during detection: {e}", exc_info=True)
         return {"error": f"Internal server error: {str(e)}"}
+
+
+@app.get("/api/v2/cache/stats")
+async def get_cache_stats() -> Dict[str, Any]:
+    """
+    Get LRU cache statistics (only available when LRU cache is enabled).
+    
+    Returns cache statistics including loaded models, memory usage,
+    and eviction information.
+    
+    Returns:
+        Dictionary containing cache statistics or error message
+    """
+    logger.info("GET /api/v2/cache/stats")
+    
+    if not config.enable_lru_cache:
+        return {
+            "error": "LRU cache is not enabled",
+            "message": "Set ENABLE_LRU_CACHE=true to use LRU cache mode"
+        }
+    
+    try:
+        # Check if the inference_sessions has get_cache_stats method
+        if hasattr(app_state.inference_sessions, 'get_cache_stats'):
+            stats = app_state.inference_sessions.get_cache_stats()
+            logger.debug(f"Cache stats: {stats}")
+            return stats
+        else:
+            return {"error": "Cache statistics not available for this session type"}
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":
