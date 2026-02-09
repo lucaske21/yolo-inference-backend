@@ -27,6 +27,9 @@ class Config:
         host (str): Server host address
         port (int): Server port number
         log_level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        enable_lru_cache (bool): Enable LRU cache for model management
+        max_memory_mb (int): Maximum memory limit in MB for LRU cache
+        memory_check_interval (int): Number of requests between memory checks
     """
     
     _instance: Optional[Config] = None
@@ -61,6 +64,11 @@ class Config:
         # Logging configuration
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
         
+        # LRU Cache configuration
+        self.enable_lru_cache = os.getenv('ENABLE_LRU_CACHE', 'false').lower() == 'true'
+        self.max_memory_mb = int(os.getenv('MAX_MEMORY_MB', '4096'))
+        self.memory_check_interval = int(os.getenv('MEMORY_CHECK_INTERVAL', '10'))
+        
         self._initialized = True
     
     def validate(self) -> bool:
@@ -85,6 +93,12 @@ class Config:
         if not 1 <= self.port <= 65535:
             raise ValueError(f"port must be between 1 and 65535, got {self.port}")
         
+        if self.max_memory_mb <= 0:
+            raise ValueError(f"max_memory_mb must be positive, got {self.max_memory_mb}")
+        
+        if self.memory_check_interval <= 0:
+            raise ValueError(f"memory_check_interval must be positive, got {self.memory_check_interval}")
+        
         return True
     
     def __str__(self) -> str:
@@ -97,7 +111,10 @@ class Config:
             f"output_img_base_path={self.output_img_base_path}, "
             f"host={self.host}, "
             f"port={self.port}, "
-            f"log_level={self.log_level})"
+            f"log_level={self.log_level}, "
+            f"enable_lru_cache={self.enable_lru_cache}, "
+            f"max_memory_mb={self.max_memory_mb}, "
+            f"memory_check_interval={self.memory_check_interval})"
         )
 
 
